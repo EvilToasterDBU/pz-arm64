@@ -40,7 +40,7 @@ tar xzf pz-arm64-linux-aarch64.tar.gz && cd pz-arm64 && ./install.sh
 ```
 Options: `--steam-dir DIR`, `--no-b41`, `--no-b42`. One-line alternative (downloads the latest release for you):
 ```bash
-curl -fsSL https://github.com/EvilToasterDBU/pz-arm64/releases/latest/download/install.sh | PZ_ARM64_REPO=EvilToasterDBU/pz-arm64 bash
+curl -fsSL https://github.com/EvilToasterDBU/pz-arm64/releases/latest/download/install.sh | bash
 ```
 Building from source is possible but not needed for normal use (see below).
 

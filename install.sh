@@ -43,11 +43,11 @@ say "Steam: $STEAM_DIR"
 
 # ---- get the tool files: next to this script (release / checkout with dist), or download the release
 SRC=""
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
+HERE=""                                              # empty when piped from curl (no script file on disk)
+[ -f "${BASH_SOURCE[0]:-}" ] && HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ -n "$HERE" ] && [ -f "$HERE/pz-arm64" ] && [ -d "$HERE/lib/bridge" ]; then SRC="$HERE"
 elif [ -n "$HERE" ] && [ -f "$HERE/dist/pz-arm64/pz-arm64" ]; then SRC="$HERE/dist/pz-arm64"
 else
-  [ "$REPO" != "EvilToasterDBU/pz-arm64" ] || die "release source unknown (PZ_ARM64_REPO not set)"
   TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
   if [ "$VERSION" = latest ]; then URL_BASE="https://github.com/$REPO/releases/latest/download"; else URL_BASE="https://github.com/$REPO/releases/download/$VERSION"; fi
   say "downloading release ($VERSION)"

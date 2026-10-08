@@ -40,7 +40,7 @@ tar xzf pz-arm64-linux-aarch64.tar.gz && cd pz-arm64 && ./install.sh
 ```
 Параметры: `--steam-dir DIR`, `--no-b41`, `--no-b42`. Альтернатива одной строкой (сама скачает последний релиз):
 ```bash
-curl -fsSL https://github.com/EvilToasterDBU/pz-arm64/releases/latest/download/install.sh | PZ_ARM64_REPO=EvilToasterDBU/pz-arm64 bash
+curl -fsSL https://github.com/EvilToasterDBU/pz-arm64/releases/latest/download/install.sh | bash
 ```
 Сборка из исходников возможна, но для обычного использования не нужна (см. ниже).
 
