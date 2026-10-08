@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""pz-arm64 - Steam compatibility tool: runs Project Zomboid (Linux x86_64 depot) on aarch64 with a NATIVE JVM.
+
+The game's own x86_64 JNI libraries (lighting, zombie population, physics, FMOD, ZNet/Steam ...) are executed by
+Box64 running in library mode inside the JVM process; arm64 shims forward every JNI call into them.
+Nothing in the game directory is ever modified: the command line is derived from the game's own
+ProjectZomboid64.json at launch time and adjusted in memory.
+
+Options: pz-arm64.json next to this script (all optional) or environment variables PZ_*.
+"""
+import json
+import os
+import shutil
+import sys
+import time
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+HOME = os.path.expanduser("~")
+sys.path.insert(0, HERE)
+import pzgen  # builds the JNI binding tables from the game's own files (no compiler needed)
+
+DEFAULTS = {
+    "sound": True,            # real FMOD through the bridge
+    "steam": True,            # real steam_api / ZNetJNI through the bridge
+    "voice": False,           # voice chat crashes the emulated FMOD (record-driver enumeration)
+    "xmx": None,              # e.g. "4096m"; default: whatever the game's json says
+    "jvm_flags": [],          # extra JVM flags
+    "game_args": [],          # extra game arguments
+    "box64_env": {"BOX64_LOG": "0", "BOX64_SHOWSEGV": "1", "BOX64_SHOWBT": "1", "BOX64_DYNAREC_STRONGMEM": "1"},
+    "hide_touchscreens": True,
+}
+
+
+def log(msg):
+    try:
+        with open(os.path.join(HOME, "Zomboid", "pz-arm64.log"), "a") as f:
+            f.write(time.strftime("%H:%M:%S ") + msg + "\n")
+    except OSError:
+        pass
+
+
+def load_options():
+    opts = json.loads(json.dumps(DEFAULTS))
+    try:
+        with open(os.path.join(HERE, "pz-arm64.json")) as f:
+            user = json.load(f)
+        for k, v in user.items():
+            if isinstance(v, dict) and isinstance(opts.get(k), dict):
+                opts[k].update(v)
+            else:
+                opts[k] = v
+    except FileNotFoundError:
+        pass
+    env = os.environ
+    for key, name in (("sound", "PZ_SOUND"), ("steam", "PZ_STEAM"), ("voice", "PZ_VOICE")):
+        if name in env:
+            opts[key] = env[name] not in ("0", "false", "no", "")
+    if "PZ_XMX" in env:
+        opts["xmx"] = env["PZ_XMX"]
+    return opts
+
+
+def find_install():
+    root = os.environ.get("STEAM_COMPAT_INSTALL_PATH") or os.environ.get("PZ_GAME_DIR")
+    cmd_script = next((a for a in sys.argv[1:] if a.endswith("projectzomboid.sh")), None)
+    if not root and cmd_script:
+        root = os.path.dirname(os.path.abspath(cmd_script))
+    if not root:
+        sys.exit("pz-arm64: cannot locate the game (STEAM_COMPAT_INSTALL_PATH is not set)")
+    for cand in (os.path.join(root, "projectzomboid"), root):
+        if os.path.isfile(os.path.join(cand, "ProjectZomboid64.json")):
+            return cand
+    sys.exit(f"pz-arm64: ProjectZomboid64.json not found under {root}")
+
+
+def input_hide_list():
+    """event numbers of touch screens (they show up as GLFW joystick #0 and break pad indexing)."""
+    out = []
+    try:
+        blocks = open("/proc/bus/input/devices").read().split("\n\n")
+    except OSError:
+        return out
+    import re
+    for b in blocks:
+        m = re.search(r'N: Name="([^"]*)"', b)
+        h = re.search(r"event(\d+)", b)
+        if m and h and re.search(r"touch|ft5x06|finger", m.group(1), re.I):
+            out.append(h.group(1))
+    return out
+
+
+def main():
+    opts = load_options()
+    inst = find_install()
+    with open(os.path.join(inst, "ProjectZomboid64.json")) as f:
+        cfg = json.load(f)
+    classpath = list(cfg["classpath"])
+    vm_args = list(cfg.get("vmArgs", []))
+    main_class = cfg["mainClass"].replace("/", ".")
+
+    # ---- which generation of the game is this? (selects the runtime profile)
+    is_b41 = any(c.startswith("lwjgl") and c.endswith(".jar") for c in classpath)
+    profile = "b41" if is_b41 else "b42"
+    jre = os.path.join(HERE, "jre17" if profile == "b41" else "jre25")
+    if not os.path.isfile(os.path.join(jre, "bin", "java")):
+        sys.exit(f"pz-arm64: runtime for profile {profile} is not installed ({jre})")
+    java = os.path.join(jre, "bin", "java")
+    lwjgl = os.path.join(HERE, "lib", profile, "lwjgl-arm64")
+    jassimp = os.path.join(HERE, "lib", "jassimp", "libjassimp64.so")
+
+    # ---- JNI binding tables + shim copies, generated from the game's own classes and x86 libraries (cached)
+    libdirs = [inst, os.path.join(inst, "linux64"), os.path.join(inst, "natives")]
+    key = pzgen.cache_key(inst, classpath, libdirs)
+    cache_root = os.path.join(HOME, ".cache", "pz-arm64")
+    cache = os.path.join(cache_root, f"{profile}-{key}")
+    if not os.path.isfile(os.path.join(cache, ".complete")):
+        for old_dir in (os.listdir(cache_root) if os.path.isdir(cache_root) else []):
+            if old_dir.startswith(profile + "-") and old_dir != f"{profile}-{key}":
+                shutil.rmtree(os.path.join(cache_root, old_dir), ignore_errors=True)
+        shutil.rmtree(cache, ignore_errors=True)
+        t0 = time.time()
+        summary = pzgen.build(inst, classpath, cache, os.path.join(HERE, "lib", "bridge", "libpzshim.so"),
+                              [jassimp] if os.path.isfile(jassimp) else [])
+        with open(os.path.join(cache, ".complete"), "w") as f:
+            json.dump(summary, f)
+        log(f"generated binding tables in {time.time() - t0:.1f}s: {summary}")
+    shims = os.path.join(cache, "libs")
+    if os.path.isfile(jassimp):                                  # real arm64 build; always refresh (not part of the cache key)
+        shutil.copy2(jassimp, os.path.join(shims, "libjassimp64.so"))
+
+    # ---- JVM command line, derived from the game's own json
+    jvm = []
+    for a in vm_args:
+        if a.startswith("-Djava.library.path=") or a in ("-XX:+UseZGC", "-XX:+UseG1GC"):
+            continue                                             # replaced below
+        if a.startswith("-Xmx") and opts["xmx"]:
+            continue
+        if a.startswith("-Dzomboid.steam=") and not opts["steam"]:
+            continue
+        jvm.append(a)
+    jvm += [f"-Djava.library.path={shims}", "-XX:+UseG1GC"]
+    if opts["xmx"]:
+        jvm.append("-Xmx" + str(opts["xmx"]))
+    if not opts["steam"]:
+        jvm.append("-Dzomboid.steam=0")
+    jvm += opts["jvm_flags"]
+
+    if os.path.isdir(lwjgl):
+        classpath += sorted(os.path.join(lwjgl, j) for j in os.listdir(lwjgl) if j.endswith(".jar"))
+    cp = ":".join(classpath)
+
+    # ---- program arguments: user's Steam launch options + ours
+    steam_cmd = [a for a in sys.argv[1:]]
+    if "--" in steam_cmd:
+        steam_cmd = steam_cmd[steam_cmd.index("--") + 1:]
+    user_args = [a for a in steam_cmd[1:]] if steam_cmd else []   # [0] is the x86 launcher script
+    game_args = list(opts["game_args"])
+    if not opts["steam"]:
+        game_args.append("-nosteam")
+    if not opts["sound"]:
+        game_args.append("-nosound")
+    if not opts["voice"]:
+        game_args.append("-novoip")
+
+    # ---- environment
+    env = dict(os.environ)
+    env.pop("LD_PRELOAD", None)                       # Steam injects x86 overlay libs; useless for an arm64 JVM
+    preload = [os.path.join(jre, "lib", "libjsig.so")]  # JVM signal chaining (Box64 + JVM share SIGSEGV)
+    hide = input_hide_list() if opts["hide_touchscreens"] else []
+    if hide:
+        env["PZ_HIDE_EVENTS"] = ",".join(hide)
+        preload.append(os.path.join(HERE, "lib", "bridge", "libpzhide.so"))
+    env["LD_PRELOAD"] = ":".join(preload)
+    env["PZ_TABLE_DIR"] = os.path.join(cache, "tables")
+    env["LD_LIBRARY_PATH"] = os.path.join(HERE, "lib", "bridge") + (":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+
+    # per-user dir with symlinks to the game's FMOD libraries under their sonames (outside the game dir)
+    cache_x86 = os.path.join(HOME, ".cache", "pz-arm64", "x86")
+    os.makedirs(cache_x86, exist_ok=True)
+    for soname, real in (("libfmod.so.13", "linux64/libfmod.so.13.6"), ("libfmodstudio.so.13", "linux64/libfmodstudio.so.13.6")):
+        link, target = os.path.join(cache_x86, soname), os.path.join(inst, real)
+        if os.path.exists(target) and os.path.realpath(link) != os.path.realpath(target):
+            try:
+                os.unlink(link)
+            except FileNotFoundError:
+                pass
+            os.symlink(target, link)
+    env["BOX64_LD_LIBRARY_PATH"] = ":".join([cache_x86, os.path.join(HERE, "lib", "x86"), inst, os.path.join(inst, "linux64"), os.path.join(inst, "natives")])
+    env.update(opts["box64_env"])
+
+    cmd = [java] + jvm + ["-cp", cp, main_class] + game_args + user_args
+    log(f"profile={profile} inst={inst} hide={hide} cmd={' '.join(cmd)[:400]}")
+
+    os.makedirs(os.path.join(HOME, "Zomboid"), exist_ok=True)
+    fd = os.open(os.path.join(HOME, "Zomboid", "projectzomboid.sh.log"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    os.chdir(inst)
+    os.execve(java, cmd, env)
+
+
+if __name__ == "__main__":
+    main()

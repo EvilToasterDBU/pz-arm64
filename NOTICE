@@ -1,0 +1,15 @@
+pz-arm64 bundles or builds the following third-party components (see also the Credits section of README.md).
+
+- Zomdroid (https://github.com/Not-a-dude/zomdroid) - MIT, Copyright (c) 2025 liamelui (licenses/zomdroid-LICENSE.txt). src/bridge/wrapped_jni.c, wrapped_jni.h, pzb_globals.h,
+  pzb_log.h and src/x86/jniwrapper.cpp are derived from Zomdroid's JNI wrapping layer; src/bridge/pzb.c is derived
+  from its emulation.c.
+- Box64 (https://github.com/ptitSeb/box64), in the Zomdroid fork https://github.com/Not-a-dude/zomdroid-box64 - MIT.
+  Downloaded and built as libbox64.so by scripts/build-box64.sh.
+- Assimp (https://github.com/assimp/assimp) 5.4.3 - BSD 3-clause. Built as libjassimp64.so by scripts/build-assimp.sh
+  with the patch in src/assimp/.
+- Eclipse Temurin JRE 17 / 25 (https://adoptium.net) - GPLv2 with Classpath Exception. Downloaded by install.sh, not redistributed.
+- LWJGL 3.2.3 / 3.4.1 arm64 natives (https://www.lwjgl.org) - BSD 3-clause. Downloaded by install.sh from Maven Central.
+- GNU libstdc++ / libgcc (x86-64) - GPLv3 with GCC Runtime Library Exception. Shipped in the release for the x86 side.
+
+Project Zomboid, FMOD and Steamworks are the property of their owners. This project contains none of their files
+and does not modify the game: you need your own copy of the game installed through Steam.

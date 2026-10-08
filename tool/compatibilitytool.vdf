@@ -1,0 +1,13 @@
+"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "pz-arm64"
+    {
+      "install_path" "."
+      "display_name" "Project Zomboid (arm64 native)"
+      "from_oslist"  "linux"
+      "to_oslist"    "linux"
+    }
+  }
+}
