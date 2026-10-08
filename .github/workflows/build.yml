@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write      # needed to create the GitHub release on tag pushes
+
 jobs:
   x86-wrapper:
     # the x86-64 half: fake JNIEnv tables + the C++ runtime the game's libraries run against inside Box64
