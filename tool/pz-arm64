@@ -192,6 +192,16 @@ def main():
     log(f"profile={profile} inst={inst} hide={hide} cmd={' '.join(cmd)[:400]}")
 
     os.makedirs(os.path.join(HOME, "Zomboid"), exist_ok=True)
+    # The game creates the favourites tables only when ServerList*.db does not exist yet. An empty (0 byte) file left by
+    # an interrupted earlier run makes every later "add server" fail with "no such table: server" - drop such files.
+    for name in ("ServerList.db", "ServerListSteam.db"):
+        db = os.path.join(HOME, "Zomboid", "db", name)
+        try:
+            if os.path.isfile(db) and os.path.getsize(db) == 0:
+                os.unlink(db)
+                log(f"removed empty {name} (game would not have created its tables)")
+        except OSError:
+            pass
     fd = os.open(os.path.join(HOME, "Zomboid", "projectzomboid.sh.log"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     os.dup2(fd, 1)
     os.dup2(fd, 2)
