@@ -14,6 +14,10 @@ cd box64-src
 sed -i 's/^#ifndef ANDROID$/#if !defined(ANDROID) \&\& !defined(BUILD_DYNAMIC)/' src/mallochook.c     # no malloc hooks inside the JVM
 sed -i 's/^#if defined(ANDROID) || defined(STATICBUILD)$/#if defined(ANDROID) || defined(STATICBUILD) || defined(BUILD_DYNAMIC)/' src/include/debug.h
 sed -i 's|^#include "bits/timespec.h"$|#include <time.h>|' src/include/myalign.h                      # private glibc header
+# newer Steam clients (steamclient.so) import pthread_mutex_clocklock, which this fork does not wrap (upstream Box64 does)
+grep -q 'pthread_mutex_clocklock' src/wrapped/wrappedlibpthread_private.h \
+  || sed -i 's|^GO(pthread_mutex_timedlock, iFpp)$|GO(pthread_mutex_clocklock, iFpip)\n&|' src/wrapped/wrappedlibpthread_private.h
+grep -q 'pthread_mutex_clocklock' src/wrapped/wrappedlibpthread_private.h || { echo "clocklock patch did not apply (upstream changed?)"; exit 1; }
 grep -q BUILD_DYNAMIC src/mallochook.c && grep -q BUILD_DYNAMIC src/include/debug.h && grep -q '<time.h>' src/include/myalign.h \
   || { echo "box64 patches did not apply (upstream changed?)"; exit 1; }
 rm -rf build && mkdir build && cd build
