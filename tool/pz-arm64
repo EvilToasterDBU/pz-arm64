@@ -28,7 +28,11 @@ DEFAULTS = {
     "game_args": [],          # extra game arguments
     "box64_env": {"BOX64_LOG": "0", "BOX64_SHOWSEGV": "1", "BOX64_SHOWBT": "1", "BOX64_DYNAREC_STRONGMEM": "1"},
     "hide_touchscreens": True,
+    "zombiebuddy": False,     # load the ZombieBuddy Java agent (Workshop 3619862853); same as the launch option below
+    "zombiebuddy_args": "",   # agent options, e.g. "verbosity=1" or "policy=deny-new"
 }
+
+ZB_WORKSHOP_ID = "3619862853"
 
 
 def log(msg):
@@ -55,6 +59,8 @@ def load_options():
     for key, name in (("sound", "PZ_SOUND"), ("steam", "PZ_STEAM"), ("voice", "PZ_VOICE")):
         if name in env:
             opts[key] = env[name] not in ("0", "false", "no", "")
+    if "PZ_ZOMBIEBUDDY" in env:
+        opts["zombiebuddy"] = env["PZ_ZOMBIEBUDDY"] not in ("0", "false", "no", "")
     if "PZ_XMX" in env:
         opts["xmx"] = env["PZ_XMX"]
     return opts
@@ -71,6 +77,50 @@ def find_install():
         if os.path.isfile(os.path.join(cand, "ProjectZomboid64.json")):
             return cand
     sys.exit(f"pz-arm64: ProjectZomboid64.json not found under {root}")
+
+
+def find_workshop_jar(inst, item_id, rel):
+    """Locate a file of a Steam Workshop item without copying anything into the game directory.
+    The game lives in <library>/steamapps/common/ProjectZomboid/projectzomboid; Workshop items in
+    <library>/steamapps/workshop/content/108600/<id>/."""
+    steamapps = []
+    d = os.path.realpath(inst)
+    for _ in range(6):
+        if os.path.basename(d) == "steamapps":
+            steamapps.append(d)
+            break
+        d = os.path.dirname(d)
+    steamapps += [os.path.join(HOME, ".local", "share", "Steam", "steamapps"),
+                  os.path.join(HOME, ".steam", "steam", "steamapps")]
+    for sa in steamapps:
+        path = os.path.join(sa, "workshop", "content", "108600", item_id, *rel.split("/"))
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def resolve_agent_arg(arg, inst):
+    """-javaagent:ZombieBuddy.jar[=opts]: the game launcher expects the jar next to the game; here it is taken from the
+    Workshop folder instead (the game directory is never modified). Other agents are left alone."""
+    spec = arg[len("-javaagent:"):]
+    path, sep, agent_opts = spec.partition("=")
+    if os.path.isabs(path) or os.path.isfile(os.path.join(inst, path)):
+        return arg
+    if os.path.basename(path) == "ZombieBuddy.jar":
+        found = find_workshop_jar(inst, ZB_WORKSHOP_ID, "mods/ZombieBuddy/libs/ZombieBuddy.jar")
+        if found:
+            return "-javaagent:" + found + sep + agent_opts
+        log("ZombieBuddy.jar requested but not found (subscribe to the ZombieBuddy mod in the Steam Workshop)")
+    return arg
+
+
+def split_launch_args(args):
+    """Steam launch options for the game: everything before a bare '--' is for the JVM (that is how the game's own
+    launcher treats it: '-javaagent:ZombieBuddy.jar --'), everything after it is for the game."""
+    if "--" in args:
+        i = args.index("--")
+        return args[:i], args[i + 1:]
+    return [], args
 
 
 def input_hide_list():
@@ -154,6 +204,14 @@ def main():
     if "--" in steam_cmd:
         steam_cmd = steam_cmd[steam_cmd.index("--") + 1:]
     user_args = [a for a in steam_cmd[1:]] if steam_cmd else []   # [0] is the x86 launcher script
+    user_jvm, user_args = split_launch_args(user_args)
+    user_jvm = [resolve_agent_arg(a, inst) if a.startswith("-javaagent:") else a for a in user_jvm]
+    if opts["zombiebuddy"] and not any(a.startswith("-javaagent:") and "ZombieBuddy" in a for a in user_jvm):
+        zb = find_workshop_jar(inst, ZB_WORKSHOP_ID, "mods/ZombieBuddy/libs/ZombieBuddy.jar")
+        if zb:
+            user_jvm.append("-javaagent:" + zb + ("=" + opts["zombiebuddy_args"] if opts["zombiebuddy_args"] else ""))
+        else:
+            log("option zombiebuddy is on but ZombieBuddy.jar was not found in the Workshop folder")
     game_args = list(opts["game_args"])
     if not opts["steam"]:
         game_args.append("-nosteam")
@@ -188,9 +246,15 @@ def main():
     env["BOX64_LD_LIBRARY_PATH"] = ":".join([cache_x86, os.path.join(HERE, "lib", "x86"), inst, os.path.join(inst, "linux64"), os.path.join(inst, "natives")])
     env.update(opts["box64_env"])
 
+    jvm += user_jvm
+    if any(a.startswith("-javaagent:") for a in jvm) and not os.path.isfile(os.path.join(jre, "lib", "libinstrument.so")):
+        log("warning: this Java runtime has no libinstrument.so - Java agents cannot load")
     cmd = [java] + jvm + ["-cp", cp, main_class] + game_args + user_args
     log(f"profile={profile} inst={inst} hide={hide} cmd={' '.join(cmd)[:400]}")
 
+    if os.environ.get("PZ_DRY_RUN"):                 # print the command instead of starting the game (tests, debugging)
+        print(json.dumps(cmd))
+        return
     os.makedirs(os.path.join(HOME, "Zomboid"), exist_ok=True)
     # The game creates the favourites tables only when ServerList*.db does not exist yet. An empty (0 byte) file left by
     # an interrupted earlier run makes every later "add server" fail with "no such table: server" - drop such files.

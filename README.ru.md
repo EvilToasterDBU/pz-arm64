@@ -52,7 +52,22 @@ curl -fsSL https://github.com/EvilToasterDBU/pz-arm64/releases/latest/download/i
 
 ## Настройки
 `compatibilitytools.d/pz-arm64/pz-arm64.json` (всё необязательно): `sound`, `steam`, `voice`, `xmx`, `jvm_flags`,
-`game_args`, `box64_env`, `hide_touchscreens` – описание в [английском README](README.md#options).
+`game_args`, `box64_env`, `hide_touchscreens`, `zombiebuddy`, `zombiebuddy_args` – описание в [английском README](README.md#options).
+
+### ZombieBuddy (Java-моды)
+Некоторым модам нужен фреймворк [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) – это
+Java-агент. Подпишитесь на него в Steam Workshop (после загрузки в папку игры ничего копировать не нужно: инструмент берёт
+`ZombieBuddy.jar` из папки Workshop), затем либо
+
+* укажите параметр запуска Steam со страницы мода: `-javaagent:ZombieBuddy.jar --` (всё до одиночного `--` уходит в JVM,
+  всё после – в игру, как в родном лаунчере игры), либо
+* включите `"zombiebuddy": true` в `pz-arm64.json` (параметры агента – в `zombiebuddy_args`).
+
+⚠️ Java-моды работают **без песочницы**; ZombieBuddy спрашивает подтверждение перед загрузкой каждого нового или
+изменённого jar – одобряйте только моды, которым доверяете. С `-javaagent:ZombieBuddy.jar=policy=deny-new --` ничего
+неодобренного не загрузится.
+Статус: часть лаунчера покрыта тестами (`python3 tests/test_launcher.py`); запуск самого ZombieBuddy на реальном
+arm64-устройстве ещё не проверен (окна подтверждения требуют рабочего стола).
 
 Логи: `~/Zomboid/pz-arm64.log` (лаунчер) и `~/Zomboid/projectzomboid.sh.log` (игра и мост).
 

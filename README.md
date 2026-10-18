@@ -62,6 +62,22 @@ Uninstall: `./uninstall.sh`.
 | `jvm_flags`, `game_args` | `[]` | extra flags |
 | `box64_env` | see source | environment passed to Box64 (`BOX64_*`) |
 | `hide_touchscreens` | `true` | hide touch screens from GLFW (they otherwise appear as gamepad #0) |
+| `zombiebuddy` | `false` | load the [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) Java agent (see below) |
+| `zombiebuddy_args` | `""` | agent options, e.g. `verbosity=1` or `policy=deny-new` |
+
+### ZombieBuddy (Java mods)
+Some mods need the [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) framework, a Java
+agent. Subscribe to it in the Steam Workshop (once the game has downloaded it, nothing has to be copied into the game
+folder – the tool takes `ZombieBuddy.jar` from the Workshop folder), then either
+
+* set the Steam launch option the mod's page tells you to use, `-javaagent:ZombieBuddy.jar --`
+  (everything before a bare `--` goes to the JVM, everything after it to the game – like the game's own launcher), or
+* set `"zombiebuddy": true` in `pz-arm64.json` (extra agent options in `zombiebuddy_args`).
+
+⚠️ Java mods run **without any sandbox**; ZombieBuddy asks before loading every new or changed jar – only approve
+mods you trust. Use `-javaagent:ZombieBuddy.jar=policy=deny-new --` to never load anything not already approved.
+Status: the launcher part is unit-tested (`python3 tests/test_launcher.py`); running ZombieBuddy itself on a real
+arm64 device has not been verified yet (the approval dialogs need a desktop session).
 
 Logs: `~/Zomboid/pz-arm64.log` (launcher) and `~/Zomboid/projectzomboid.sh.log` (game + bridge).
 
